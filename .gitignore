@@ -1,0 +1,10 @@
+# Local game data
+backups/
+profiles.txt
+
+# Java build files
+*.class
+bin/
+
+# VS Code
+.vscode/
