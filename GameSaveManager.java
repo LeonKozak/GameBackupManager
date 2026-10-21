@@ -8,6 +8,9 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.io.FileWriter;
 import java.util.Scanner;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.stream.Stream;
 /**
  * Manages game profiles and handles creating, displaying,
  * restoring, saving, and loading game save backups.
@@ -54,32 +57,27 @@ public class GameSaveManager
             LocalDateTime now = LocalDateTime.now();
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
             String timestamp = now.format(formatter);
-            String backup = "backups/" + profile.getName() + "/" + timestamp;
-            Path backupPath = Path.of(backup);
+            Path backupPath = Path.of("backups", profile.getName(), timestamp);
+
+            // If a backup was already made this second, add a number so it is not overwritten
+            int count = 2;
+            while(Files.exists(backupPath))
+            {
+                backupPath = Path.of("backups", profile.getName(), timestamp + "_" + count);
+                count++;
+            }
             try
             {
                 Files.createDirectories(backupPath);
-                File folder = new File(profile.getPath());
-                File [] files = folder.listFiles();
-                if(files == null)
-                {
-                    System.out.println("Could not read save folder");
-                    return;
-                }
 
-                // Copy each save file into the timestamped backup folder
-                for(int i = 0; i < files.length; i++)
-                {
-                    File sourceFile = files[i];
-                    Path destination = backupPath.resolve(sourceFile.getName());
-                    Files.copy(sourceFile.toPath(), destination);
-                }
+                // Copy the whole save folder, including any subfolders
+                copyFolder(Path.of(profile.getPath()), backupPath);
                 System.out.println("Backup created successfully: ");
                 System.out.println(backupPath);
             }
             catch(IOException e)
             {
-                System.out.println("Could not create backup");
+                System.out.println("Could not create backup: " + e.getMessage());
             }
         }
         else
@@ -100,6 +98,8 @@ public class GameSaveManager
             System.out.println("No backups found for this game");
             return;
         }
+        // Timestamped names sort from oldest to newest
+        Arrays.sort(backupFolders);
 
         for(int i = 0; i < backupFolders.length; i++)
         {
@@ -115,35 +115,55 @@ public class GameSaveManager
      */
     public void restoreBackup(GameProfile profile, String backupName)
     {
-        String backupFolderPath = "backups/" + profile.getName() + "/" + backupName;
+        Path gameBackups = Path.of("backups", profile.getName());
+        Path backupFolder = gameBackups.resolve(backupName.trim()).normalize();
+
+        // Only accept the name of one backup folder, so a blank or invalid
+        // name cannot restore every backup at once
+        if(backupName.isBlank() || !gameBackups.equals(backupFolder.getParent()))
+        {
+            System.out.println("Please enter a backup folder name from View backups");
+            return;
+        }
+        if(!Files.isDirectory(backupFolder))
+        {
+            System.out.println("Backup folder does not exist");
+            return;
+        }
         try
         {
-            File backupFolder = new File(backupFolderPath);
-
-            if(!backupFolder.exists())
-            {
-                System.out.println("Backup folder does not exist");
-                return;
-            }
-            File [] files = backupFolder.listFiles();
-            if(files == null)
-            {
-                System.out.println("Could not read backup folder");
-                return;
-            }
-            Path saveFolder = Path.of(profile.getPath());
-
-            for(int i = 0; i < files.length; i++)
-            {
-                File sourceFile = files[i];
-                Path destination = saveFolder.resolve(sourceFile.getName());
-                Files.copy(sourceFile.toPath(), destination, StandardCopyOption.REPLACE_EXISTING);
-            }
+            // Copy the whole backup back, including any subfolders
+            copyFolder(backupFolder, Path.of(profile.getPath()));
             System.out.println("Backup restored successfully");
         }
         catch(IOException e)
         {
-            System.out.println("Could not restore backup");
+            System.out.println("Could not restore backup: " + e.getMessage());
+        }
+    }
+    /**
+     * Copies every file and subfolder from source into destination,
+     * keeping the same folder structure. Existing files are replaced.
+     */
+    private void copyFolder(Path source, Path destination) throws IOException
+    {
+        try(Stream<Path> paths = Files.walk(source))
+        {
+            Iterator<Path> iterator = paths.iterator();
+            while(iterator.hasNext())
+            {
+                Path current = iterator.next();
+                Path target = destination.resolve(source.relativize(current).toString());
+
+                if(Files.isDirectory(current))
+                {
+                    Files.createDirectories(target);
+                }
+                else
+                {
+                    Files.copy(current, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
         }
     }
     /**
