@@ -1,4 +1,6 @@
 import java.util.Scanner;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 /**
  * Runs the game save backup manager and handles the menu input
  */
@@ -34,20 +36,32 @@ public class Main
             {
                 case 1:
                     System.out.println("Enter game name: ");
-                    name = sc.nextLine();
+                    name = sc.nextLine().trim();
                     GameProfile existingProfile = mngr.findProfile(name);
 
-                    if(existingProfile != null)
+                    if(!isValidName(name))
+                    {
+                        System.out.println("Game name cannot be empty, end with a dot, or contain \\ / : * ? \" < > |");
+                    }
+                    else if(existingProfile != null)
                     {
                         System.out.println("Profile already exists");
                     }
                     else
                     {
                         System.out.println("Copy game path here: ");
-                        path = sc.nextLine();
-                        GameProfile profile = new GameProfile(name, path);
-                        mngr.addProfile(profile);
-                        mngr.saveProfiles();
+                        path = cleanPath(sc.nextLine());
+
+                        if(!isValidPath(path))
+                        {
+                            System.out.println("That is not a valid folder path");
+                        }
+                        else
+                        {
+                            GameProfile profile = new GameProfile(name, path);
+                            mngr.addProfile(profile);
+                            mngr.saveProfiles();
+                        }
                     }
                     break;
                 case 2:
@@ -55,7 +69,7 @@ public class Main
                     break;
                 case 3:
                     System.out.println("Which game would you like to backup?: ");
-                    gameName = sc.nextLine();
+                    gameName = sc.nextLine().trim();
                     GameProfile selectedProfile = mngr.findProfile(gameName);
 
                     if(selectedProfile != null)
@@ -69,7 +83,7 @@ public class Main
                     break;
                 case 4:
                     System.out.println("Enter game name: ");
-                    gameName = sc.nextLine();
+                    gameName = sc.nextLine().trim();
                     GameProfile selectedProfile2 = mngr.findProfile(gameName);
 
                     if(selectedProfile2 != null)
@@ -83,7 +97,7 @@ public class Main
                     break;  
                 case 5:
                     System.out.println("Enter game name: ");
-                    gameName = sc.nextLine();
+                    gameName = sc.nextLine().trim();
                     System.out.println("Enter backup folder: ");
                     String backupFolder = sc.nextLine();
                     GameProfile selectedProfile3 = mngr.findProfile(gameName);
@@ -116,5 +130,54 @@ public class Main
         System.out.println(4 + ". View backups");
         System.out.println(5 + ". Restore backup");
         System.out.println(6 + ". Exit");
+    }
+    /**
+     * Checks a game name can be used as a Windows folder name,
+     * since it is used for the backup folder.
+     */
+    public static boolean isValidName(String name)
+    {
+        // Windows drops trailing dots from folder names, which also rules out "." and ".."
+        if(name.isEmpty() || name.endsWith("."))
+        {
+            return false;
+        }
+        String illegalChars = "\\/:*?\"<>|";
+        for(int i = 0; i < illegalChars.length(); i++)
+        {
+            if(name.indexOf(illegalChars.charAt(i)) >= 0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    /**
+     * Removes extra spaces and the quotes added by Explorer's "Copy as path".
+     */
+    public static String cleanPath(String path)
+    {
+        path = path.trim();
+        if(path.length() >= 2 && path.startsWith("\"") && path.endsWith("\""))
+        {
+            path = path.substring(1, path.length() - 1).trim();
+        }
+        return path;
+    }
+    public static boolean isValidPath(String path)
+    {
+        if(path.isEmpty())
+        {
+            return false;
+        }
+        try
+        {
+            Path.of(path);
+            return true;
+        }
+        catch(InvalidPathException e)
+        {
+            return false;
+        }
     }
 }

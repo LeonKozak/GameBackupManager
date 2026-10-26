@@ -1,5 +1,6 @@
 import java.nio.file.Path;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 public class GameProfile 
 {
     private String name;
@@ -21,7 +22,15 @@ public class GameProfile
     }
     public boolean savePathExists()
     {
-        Path savePath = Path.of(path);
-        return Files.exists(savePath);
+        try
+        {
+            Path savePath = Path.of(path);
+            return Files.exists(savePath);
+        }
+        catch(InvalidPathException e)
+        {
+            // A path with characters Windows does not allow can never exist
+            return false;
+        }
     }
 }

@@ -3,7 +3,9 @@ import java.nio.file.StandardCopyOption;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.io.FileWriter;
@@ -48,16 +50,24 @@ public class GameSaveManager
     }
     /**
      * Creates a timestamped backup of the selected games save files.
+     * Returns the new backup folder, or null if the backup failed.
      */
-    public void createBackup(GameProfile profile)
+    public Path createBackup(GameProfile profile)
     {
-        if(profile.savePathExists())
+        if(!profile.savePathExists())
+        {
+            System.out.println("Save folder does not exist");
+            return null;
+        }
+        Path backupPath = null;
+        boolean created = false;
+        try
         {
             // Create a unique timestamp so each backup has its own folder
             LocalDateTime now = LocalDateTime.now();
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
             String timestamp = now.format(formatter);
-            Path backupPath = Path.of("backups", profile.getName(), timestamp);
+            backupPath = Path.of("backups", profile.getName(), timestamp);
 
             // If a backup was already made this second, add a number so it is not overwritten
             int count = 2;
@@ -66,23 +76,33 @@ public class GameSaveManager
                 backupPath = Path.of("backups", profile.getName(), timestamp + "_" + count);
                 count++;
             }
-            try
-            {
-                Files.createDirectories(backupPath);
+            Files.createDirectories(backupPath);
+            created = true;
 
-                // Copy the whole save folder, including any subfolders
-                copyFolder(Path.of(profile.getPath()), backupPath);
-                System.out.println("Backup created successfully: ");
-                System.out.println(backupPath);
-            }
-            catch(IOException e)
-            {
-                System.out.println("Could not create backup: " + e.getMessage());
-            }
+            // Copy the whole save folder, including any subfolders
+            copyFolder(Path.of(profile.getPath()), backupPath);
+            System.out.println("Backup created successfully: ");
+            System.out.println(backupPath);
+            return backupPath;
         }
-        else
+        catch(IOException | InvalidPathException e)
         {
-            System.out.println("Save folder does not exist");
+            System.out.println("Could not create backup: " + e.getMessage());
+
+            // Remove the half-finished backup so it is not mistaken for a good one
+            if(created)
+            {
+                try
+                {
+                    deleteContents(backupPath);
+                    Files.delete(backupPath);
+                }
+                catch(IOException cleanupError)
+                {
+                    System.out.println("Could not remove incomplete backup, please delete it: " + backupPath);
+                }
+            }
+            return null;
         }
     }
     /**
@@ -111,34 +131,75 @@ public class GameSaveManager
     }
     /**
      * Restores save files from a selected backup folder
-     * to the games original save location.
+     * to the games original save location. The current saves are
+     * backed up first so the restore can be undone.
      */
     public void restoreBackup(GameProfile profile, String backupName)
     {
-        Path gameBackups = Path.of("backups", profile.getName());
-        Path backupFolder = gameBackups.resolve(backupName.trim()).normalize();
-
-        // Only accept the name of one backup folder, so a blank or invalid
-        // name cannot restore every backup at once
-        if(backupName.isBlank() || !gameBackups.equals(backupFolder.getParent()))
-        {
-            System.out.println("Please enter a backup folder name from View backups");
-            return;
-        }
-        if(!Files.isDirectory(backupFolder))
-        {
-            System.out.println("Backup folder does not exist");
-            return;
-        }
+        Path safetyBackup = null;
         try
         {
+            Path gameBackups = Path.of("backups", profile.getName());
+            Path backupFolder = gameBackups.resolve(backupName.trim()).normalize();
+
+            // Only accept the name of one backup folder, so a blank or invalid
+            // name cannot restore every backup at once
+            if(backupName.isBlank() || !gameBackups.equals(backupFolder.getParent()))
+            {
+                System.out.println("Please enter a backup folder name from View backups");
+                return;
+            }
+            if(!Files.isDirectory(backupFolder))
+            {
+                System.out.println("Backup folder does not exist");
+                return;
+            }
+            Path savePath = Path.of(profile.getPath());
+
+            if(profile.savePathExists())
+            {
+                // Back up the current saves so nothing is lost if this was the wrong backup
+                System.out.println("Backing up current saves before restoring...");
+                safetyBackup = createBackup(profile);
+                if(safetyBackup == null)
+                {
+                    System.out.println("Restore cancelled so your current saves are not lost");
+                    return;
+                }
+                // Empty the save folder so files made after the backup do not stay behind
+                deleteContents(savePath);
+            }
             // Copy the whole backup back, including any subfolders
-            copyFolder(backupFolder, Path.of(profile.getPath()));
+            copyFolder(backupFolder, savePath);
             System.out.println("Backup restored successfully");
         }
-        catch(IOException e)
+        catch(IOException | InvalidPathException e)
         {
             System.out.println("Could not restore backup: " + e.getMessage());
+            if(safetyBackup != null)
+            {
+                System.out.println("Your saves from before the restore are in: " + safetyBackup);
+            }
+        }
+    }
+    /**
+     * Deletes every file and subfolder inside folder, leaving
+     * the folder itself in place.
+     */
+    private void deleteContents(Path folder) throws IOException
+    {
+        try(Stream<Path> paths = Files.walk(folder))
+        {
+            // Deepest paths come first, so each folder is empty when it is deleted
+            Iterator<Path> iterator = paths.sorted(Comparator.reverseOrder()).iterator();
+            while(iterator.hasNext())
+            {
+                Path current = iterator.next();
+                if(!current.equals(folder))
+                {
+                    Files.delete(current);
+                }
+            }
         }
     }
     /**
